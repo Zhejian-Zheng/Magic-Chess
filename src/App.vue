@@ -32,7 +32,6 @@
           >
             Undo {{ moveHistory.length > 0 ? `(${moveHistory.length})` : '' }}
           </button>
-          <button class="btn btn-ghost accent" @click="showMagicModal = true">✨ Magic Abilities Menu</button>
           <button class="btn btn-ai slim" @click="handleToggleAi">
             AI: {{ enableAi ? 'On' : 'Off' }}
           </button>
@@ -144,22 +143,6 @@
     </div>
   </div>
 
-  <!-- Magic Abilities Modal -->
-  <div v-if="showMagicModal" class="modal-overlay" @click.self="showMagicModal = false">
-    <div class="modal-content">
-      <h3>Magic Abilities Menu</h3>
-      <p>Current mode: {{ modeLabel }}</p>
-      <div class="magic-list">
-        <div class="magic-item" v-for="item in magicList" :key="item.key">
-          <div class="magic-title">{{ item.title }}</div>
-          <div class="magic-desc">{{ item.desc }}</div>
-        </div>
-      </div>
-      <div class="modal-actions">
-        <button class="btn btn-primary" @click="showMagicModal = false">Close</button>
-      </div>
-    </div>
-  </div>
 </template>
 
 <script setup lang="ts">
@@ -191,15 +174,6 @@ const selectedMode = ref<'classic' | 'random' | 'special_pawn_power' | 'ghost_pa
 const showResultModal = computed(() =>
   ['checkmate', 'stalemate', 'draw'].includes(gameStatus.value)
 )
-const showMagicModal = ref(false)
-
-const magicList = [
-  { key: 'special_pawn_power', title: 'Special Power (Pawns 2-step)', desc: 'Pawns may move two squares forward on any turn if the path is clear.' },
-  { key: 'ghost_pawn', title: 'Ghost Pawn', desc: 'Each pawn may once jump over a piece straight ahead and land on the empty square behind it; pawns may also 2-step anytime.' },
-  { key: 'heavy_knight', title: 'Heavy Knight', desc: 'Landing stuns enemy pieces in the 4 orthogonal squares for 1 turn; extended vault jump (3+1 L) can leap over two blockers.' },
-  { key: 'bishop_sniper', title: 'Bishop Sniper', desc: 'Bishop may snipe (capture) up to 2 squares away on a diagonal without moving; adjacent friendly pieces are warded from capture.' },
-  { key: 'rook_charge', title: 'Rook Charge', desc: 'On a long straight capture (3+ squares), the rook plows through and may advance one extra empty square.' }
-]
 
 const openRulesDoc = () => {
   window.open('/rules.html', '_blank', 'noopener')
@@ -562,31 +536,6 @@ function getStatusText(): string {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 12px;
-}
-
-.magic-list {
-  margin: 16px 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.magic-item {
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: #f8fafc;
-  border: 1px solid #e5e7eb;
-}
-
-.magic-title {
-  font-weight: 700;
-  color: #1f2937;
-}
-
-.magic-desc {
-  color: #4b5563;
-  font-size: 0.95em;
-  margin-top: 4px;
 }
 
 .game-content {
