@@ -1,4 +1,4 @@
-import type { Board, Position, Color, Move } from '../types/chess'
+import type { Board, Position, Color, Move, GameMode } from '../types/chess'
 import { isValidPosition, isEmpty, isOwnPiece, isEnemyPiece } from './chessUtils'
 import { isInCheck } from './checkDetector'
 
@@ -14,30 +14,41 @@ export function getLastMove(): Move | null {
 }
 
 // Get all valid moves
-export function getValidMoves(board: Board, pos: Position, color: Color): Position[] {
+export function getValidMoves(
+  board: Board,
+  pos: Position,
+  color: Color,
+  options?: { mode?: GameMode }
+): Position[] {
   const piece = board[pos.row][pos.col]
   if (!piece || piece.color !== color) {
     return []
   }
 
+  // Stunned pieces cannot move
+  if (piece.stunnedTurns && piece.stunnedTurns > 0) {
+    return []
+  }
+
   const moves: Position[] = []
+  const mode = options?.mode ?? 'classic'
 
   switch (piece.type) {
     case 'pawn':
-      moves.push(...getPawnMoves(board, pos, color))
+      moves.push(...getPawnMoves(board, pos, color, mode))
       break
     case 'rook':
       moves.push(...getRookMoves(board, pos, color))
       break
     case 'knight':
-      moves.push(...getKnightMoves(board, pos, color))
+      moves.push(...getKnightMoves(board, pos, color, mode))
       break
     case 'bishop':
-      moves.push(...getBishopMoves(board, pos, color))
+      moves.push(...getBishopMoves(board, pos, color, mode))
       break
     case 'queen':
       moves.push(...getRookMoves(board, pos, color))
-      moves.push(...getBishopMoves(board, pos, color))
+      moves.push(...getBishopMoves(board, pos, color, mode))
       break
     case 'king':
       moves.push(...getKingMoves(board, pos, color))
@@ -69,7 +80,7 @@ function wouldMovePutKingInCheck(
 }
 
 // Pawn moves
-function getPawnMoves(board: Board, pos: Position, color: Color): Position[] {
+function getPawnMoves(board: Board, pos: Position, color: Color, mode: GameMode): Position[] {
   const moves: Position[] = []
   const direction = color === 'white' ? -1 : 1
   const startRow = color === 'white' ? 6 : 1
@@ -81,8 +92,12 @@ function getPawnMoves(board: Board, pos: Position, color: Color): Position[] {
   if (isValidPosition(oneStep) && isEmpty(board, oneStep)) {
     moves.push(oneStep)
 
-    // Can move two squares from starting position
-    if (pos.row === startRow && !piece.hasMoved) {
+    const allowDoubleStep =
+      mode === 'special_pawn_power'
+        ? true // always allow double if path clear
+        : pos.row === startRow && !piece.hasMoved
+
+    if (allowDoubleStep) {
       const twoStep: Position = { row: pos.row + direction * 2, col: pos.col }
       if (isValidPosition(twoStep) && isEmpty(board, twoStep)) {
         moves.push(twoStep)
@@ -125,6 +140,15 @@ function getPawnMoves(board: Board, pos: Position, color: Color): Position[] {
     }
   }
 
+  // Ghost walk (only in ghost_pawn mode): jump over one piece ahead if landing is empty and unused
+  if (mode === 'ghost_pawn' && !piece.ghostWalkUsed) {
+    const mid: Position = { row: pos.row + direction, col: pos.col }
+    const landing: Position = { row: pos.row + direction * 2, col: pos.col }
+    if (isValidPosition(landing) && board[mid.row][mid.col] && isEmpty(board, landing)) {
+      moves.push(landing)
+    }
+  }
+
   return moves
 }
 
@@ -159,7 +183,7 @@ function getRookMoves(board: Board, pos: Position, color: Color): Position[] {
 }
 
 // Knight moves
-function getKnightMoves(board: Board, pos: Position, color: Color): Position[] {
+function getKnightMoves(board: Board, pos: Position, color: Color, mode: GameMode): Position[] {
   const moves: Position[] = []
   const offsets = [
     { row: -2, col: -1 }, { row: -2, col: 1 },
@@ -167,6 +191,15 @@ function getKnightMoves(board: Board, pos: Position, color: Color): Position[] {
     { row: 1, col: -2 }, { row: 1, col: 2 },
     { row: 2, col: -1 }, { row: 2, col: 1 }
   ]
+  // Heavy knight vault: extended L (3,1)
+  if (mode === 'heavy_knight') {
+    offsets.push(
+      { row: -3, col: -1 }, { row: -3, col: 1 },
+      { row: 3, col: -1 }, { row: 3, col: 1 },
+      { row: -1, col: -3 }, { row: 1, col: -3 },
+      { row: -1, col: 3 }, { row: 1, col: 3 }
+    )
+  }
 
   for (const offset of offsets) {
     const newPos: Position = {
@@ -183,7 +216,7 @@ function getKnightMoves(board: Board, pos: Position, color: Color): Position[] {
 }
 
 // Bishop moves
-function getBishopMoves(board: Board, pos: Position, color: Color): Position[] {
+function getBishopMoves(board: Board, pos: Position, color: Color, mode: GameMode): Position[] {
   const moves: Position[] = []
   const directions = [
     { row: -1, col: -1 }, // Top-left
@@ -192,6 +225,7 @@ function getBishopMoves(board: Board, pos: Position, color: Color): Position[] {
     { row: 1, col: 1 }    // Bottom-right
   ]
 
+  // Standard sliding
   for (const dir of directions) {
     for (let i = 1; i < 8; i++) {
       const newPos: Position = {
@@ -206,6 +240,22 @@ function getBishopMoves(board: Board, pos: Position, color: Color): Position[] {
         break
       }
       moves.push(newPos)
+    }
+  }
+
+  // Sniper: can capture up to 2 squares away diagonally without being blocked by intermediate piece
+  if (mode === 'bishop_sniper') {
+    for (const dir of directions) {
+      for (let i = 1; i <= 2; i++) {
+        const target: Position = { row: pos.row + dir.row * i, col: pos.col + dir.col * i }
+        if (!isValidPosition(target)) break
+        const occupant = board[target.row][target.col]
+        if (occupant && occupant.color !== color) {
+          moves.push(target)
+          break
+        }
+        // If friendly piece or empty, do nothing; sniper only for capture
+      }
     }
   }
 

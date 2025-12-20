@@ -1,4 +1,4 @@
-import type { Board, Position, Color } from '../types/chess'
+import type { Board, Position, Color, GameMode } from '../types/chess'
 import { isValidPosition, isEnemyPiece } from './chessUtils'
 import { getValidMoves } from './moveValidator'
 
@@ -209,12 +209,12 @@ export function isInCheck(board: Board, color: Color): boolean {
 }
 
 // Check if player has any valid moves
-export function hasValidMoves(board: Board, color: Color): boolean {
+export function hasValidMoves(board: Board, color: Color, mode: GameMode): boolean {
   for (let row = 0; row < 8; row++) {
     for (let col = 0; col < 8; col++) {
       const piece = board[row][col]
       if (piece && piece.color === color) {
-        const moves = getValidMoves(board, { row, col }, color)
+        const moves = getValidMoves(board, { row, col }, color, { mode })
         if (moves.length > 0) {
           return true
         }
@@ -225,12 +225,12 @@ export function hasValidMoves(board: Board, color: Color): boolean {
 }
 
 // Check if it's checkmate
-export function isCheckmate(board: Board, color: Color): boolean {
-  return isInCheck(board, color) && !hasValidMoves(board, color)
+export function isCheckmate(board: Board, color: Color, mode: GameMode): boolean {
+  return isInCheck(board, color) && !hasValidMoves(board, color, mode)
 }
 
 // Check if it's stalemate
-export function isStalemate(board: Board, color: Color): boolean {
-  return !isInCheck(board, color) && !hasValidMoves(board, color)
+export function isStalemate(board: Board, color: Color, mode: GameMode): boolean {
+  return !isInCheck(board, color) && !hasValidMoves(board, color, mode)
 }
 

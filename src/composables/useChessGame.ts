@@ -1,6 +1,6 @@
 import { ref } from 'vue'
-import type { Board, Position, Piece, Color, Move, GameStatus, PieceType } from '../types/chess'
-import { createInitialBoard } from '../utils/chessUtils'
+import type { Board, Position, Piece, Color, Move, GameStatus, PieceType, GameMode } from '../types/chess'
+import { createInitialBoard, isEmpty, isValidPosition } from '../utils/chessUtils'
 import { getValidMoves, setLastMove, getLastMove } from '../utils/moveValidator'
 import { isCheckmate, isStalemate, isInCheck } from '../utils/checkDetector'
 
@@ -26,12 +26,24 @@ function createGameState() {
   })
   const gameStatus = ref<GameStatus>('playing')
   const pendingPromotion = ref<Position | null>(null)
+  const gameMode = ref<GameMode>('classic')
   const gameStartTime = ref<Date | null>(null)
   const whiteTime = ref(0) // Time in seconds
   const blackTime = ref(0) // Time in seconds
   const currentTimer = ref<number | null>(null)
   const enableAi = ref(true)
   const aiColor: Color = 'black'
+
+  function tickStunFor(color: Color) {
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const pc = board.value[r][c]
+        if (pc && pc.color === color && pc.stunnedTurns && pc.stunnedTurns > 0) {
+          pc.stunnedTurns = Math.max(0, pc.stunnedTurns - 1)
+        }
+      }
+    }
+  }
 
   // Select square
   function selectSquare(pos: Position) {
@@ -42,7 +54,7 @@ function createGameState() {
     if (piece && piece.color === currentPlayer.value) {
       console.log('Selecting own piece:', piece.type)
       selectedSquare.value = pos
-      validMoves.value = getValidMoves(board.value, pos, currentPlayer.value)
+      validMoves.value = getValidMoves(board.value, pos, currentPlayer.value, { mode: gameMode.value })
       console.log('Valid moves:', validMoves.value.length)
       return
     }
@@ -119,6 +131,13 @@ function createGameState() {
       pieceHadMoved: piece.hasMoved || false,
       capturedHadMoved: captured?.hasMoved || false
     }
+    // Detect ghost walk usage
+    const isGhostWalk =
+      gameMode.value === 'ghost_pawn' &&
+      piece.type === 'pawn' &&
+      Math.abs(to.row - from.row) === 2 &&
+      !isEmpty(board.value, { row: (from.row + to.row) / 2, col: from.col }) &&
+      !piece.ghostWalkUsed
     
     // Handle castling
     if (piece.type === 'king' && Math.abs(to.col - from.col) === 2) {
@@ -135,9 +154,12 @@ function createGameState() {
     }
     
     // Update board
-    const finalPiece = promotionType 
+    const finalPiece: Piece = promotionType 
       ? { type: promotionType, color: piece.color, hasMoved: true }
       : { ...piece, hasMoved: true }
+    if (isGhostWalk) {
+      finalPiece.ghostWalkUsed = true
+    }
     
     board.value[to.row][to.col] = finalPiece
     board.value[from.row][from.col] = null
@@ -145,6 +167,42 @@ function createGameState() {
     // Record captured piece
     if (captured) {
       capturedPieces.value[captured.color].push(captured)
+    }
+
+    // Heavy knight: stun adjacent enemy pieces for 1 turn
+    if (gameMode.value === 'heavy_knight' && piece.type === 'knight') {
+      const adj = [
+        { row: to.row - 1, col: to.col },
+        { row: to.row + 1, col: to.col },
+        { row: to.row, col: to.col - 1 },
+        { row: to.row, col: to.col + 1 }
+      ]
+      adj.forEach(p => {
+        if (isValidPosition(p)) {
+          const target = board.value[p.row][p.col]
+          if (target && target.color !== piece.color) {
+            target.stunnedTurns = 1
+          }
+        }
+      })
+    }
+
+    // Rook charge: if capture with 3+ straight distance, plow one extra if empty
+    if (
+      gameMode.value === 'rook_charge' &&
+      piece.type === 'rook' &&
+      captured &&
+      (from.row === to.row || from.col === to.col) &&
+      Math.abs(from.row - to.row + from.col - to.col) >= 3
+    ) {
+      const dirRow = Math.sign(to.row - from.row)
+      const dirCol = Math.sign(to.col - from.col)
+      const extra: Position = { row: to.row + dirRow, col: to.col + dirCol }
+      if (isValidPosition(extra) && isEmpty(board.value, extra)) {
+        board.value[extra.row][extra.col] = board.value[to.row][to.col]
+        board.value[to.row][to.col] = null
+        move.to = extra
+      }
     }
     
     // Check for pawn promotion
@@ -169,6 +227,9 @@ function createGameState() {
     const oldPlayer = currentPlayer.value
     currentPlayer.value = currentPlayer.value === 'white' ? 'black' : 'white'
     console.log('Player switched:', { from: oldPlayer, to: currentPlayer.value })
+
+    // Tick stun for the new player (their stunned pieces recover)
+    tickStunFor(currentPlayer.value)
     
     // Start timer for new player
     startTimer()
@@ -212,6 +273,9 @@ function createGameState() {
     // Switch player after promotion (makeMove didn't switch player when promotion was pending)
     currentPlayer.value = currentPlayer.value === 'white' ? 'black' : 'white'
     
+    // Tick stun for the new player (their stunned pieces recover)
+    tickStunFor(currentPlayer.value)
+    
     // Start timer for new player
     startTimer()
     
@@ -232,7 +296,7 @@ function createGameState() {
         const piece = board.value[row][col]
         if (!piece || piece.color !== color) continue
         const from: Position = { row, col }
-        const valids = getValidMoves(board.value, from, color)
+        const valids = getValidMoves(board.value, from, color, { mode: gameMode.value })
         valids.forEach(to => {
           const target = board.value[to.row][to.col]
           const isPromotion = piece.type === 'pawn' && (to.row === 0 || to.row === 7)
@@ -275,15 +339,28 @@ function createGameState() {
     makeMove(chosen.from, chosen.to, chosen.promotion)
   }
 
+  function toggleAi() {
+    enableAi.value = !enableAi.value
+    console.log('AI toggled:', enableAi.value ? 'ON' : 'OFF')
+    // 如果关闭 AI，停止任何等待中的执行
+    if (!enableAi.value && currentTimer.value !== null) {
+      // 不影响计时，仅避免 AI 继续排队
+      return
+    }
+    // 如果打开 AI 且轮到 AI，立即排队
+    queueAiMove()
+  }
+
   // Update game status
   function updateGameStatus() {
-    const nextPlayer: Color = currentPlayer.value === 'white' ? 'black' : 'white'
-    
-    if (isCheckmate(board.value, nextPlayer)) {
+    const toMove: Color = currentPlayer.value
+    const mode = gameMode.value
+
+    if (isCheckmate(board.value, toMove, mode)) {
       gameStatus.value = 'checkmate'
-    } else if (isStalemate(board.value, nextPlayer)) {
+    } else if (isStalemate(board.value, toMove, mode)) {
       gameStatus.value = 'stalemate'
-    } else if (isInCheck(board.value, nextPlayer)) {
+    } else if (isInCheck(board.value, toMove)) {
       gameStatus.value = 'check'
     } else {
       gameStatus.value = 'playing'
@@ -327,9 +404,19 @@ function createGameState() {
   }
 
   // Reset game
-  function resetGame() {
+  function resetGame(mode?: GameMode) {
     console.log('=== resetGame FUNCTION CALLED ===')
     try {
+      // Set mode
+      if (mode) {
+        if (mode === 'random') {
+          const modes: GameMode[] = ['classic', 'special_pawn_power', 'ghost_pawn', 'heavy_knight']
+          gameMode.value = modes[Math.floor(Math.random() * modes.length)]
+        } else {
+          gameMode.value = mode
+        }
+      }
+
       stopTimer()
       console.log('Timer stopped')
       
@@ -355,7 +442,7 @@ function createGameState() {
       startTimer()
       console.log('Timer started')
       
-      console.log('resetGame completed successfully')
+      console.log('resetGame completed successfully, mode:', gameMode.value)
     } catch (error) {
       console.error('Error in resetGame:', error)
       throw error
@@ -459,6 +546,7 @@ function createGameState() {
     
     // Switch player back
     currentPlayer.value = currentPlayer.value === 'white' ? 'black' : 'white'
+    tickStunFor(currentPlayer.value)
     
     // Start timer for the player we switched back to
     startTimer()
@@ -488,6 +576,8 @@ function createGameState() {
     capturedPieces,
     gameStatus,
     pendingPromotion,
+    gameMode,
+    enableAi,
     whiteTime,
     blackTime,
     formatTime,
@@ -495,6 +585,7 @@ function createGameState() {
     makeMove,
     promotePawn,
     resetGame,
-    undoMove
+    undoMove,
+    toggleAi
   }
 }

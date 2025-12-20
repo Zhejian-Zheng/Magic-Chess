@@ -8,6 +8,17 @@
             Current Player: <span :class="currentPlayer">{{ currentPlayer === 'white' ? 'White' : 'Black' }}</span>
           </div>
           <div class="game-status">{{ getStatusText() }}</div>
+          <div class="game-mode">
+            Mode: {{ modeLabel }}
+          </div>
+          <div class="ai-toggle">
+            <button class="btn btn-ai" @click="handleToggleAi">
+              AI: {{ enableAi ? 'On' : 'Off' }}
+            </button>
+          </div>
+          <div class="info-actions">
+            <button class="btn btn-ghost accent" @click="showMagicModal = true">✨ Magic Abilities Menu</button>
+          </div>
           <div class="game-timer" v-if="gameStatus === 'playing'">
             <div class="timer white-timer" :class="{ active: currentPlayer === 'white' }">
               <span class="timer-label">White:</span>
@@ -83,10 +94,80 @@
       </div>
     </div>
   </div>
+
+  <!-- Game Mode Modal -->
+  <div v-if="showModeModal" class="modal-overlay" @click.self="showModeModal = false">
+    <div class="modal-content">
+      <h3>Select Game Mode</h3>
+      <p>Choose how you want to play:</p>
+      <div class="mode-options">
+        <button
+          class="mode-btn"
+          :class="{ active: selectedMode === 'classic' }"
+          @click="selectedMode = 'classic'"
+        >
+          Classic
+          <span class="mode-desc">Standard chess rules</span>
+        </button>
+        <button
+          class="mode-btn"
+          :class="{ active: selectedMode === 'random' }"
+          @click="pickRandomAbility()"
+        >
+          Random Ability
+          <span class="mode-desc">Click to pick a random magic ability</span>
+        </button>
+        <div class="mode-select-box">
+          <label class="mode-label" for="mode-select">Special Power</label>
+          <select id="mode-select" v-model="selectedMode" class="mode-select">
+            <option value="special_pawn_power">Pawns always move 2 squares</option>
+            <option value="ghost_pawn">Ghost Pawn (1x Ghost Walk)</option>
+            <option value="heavy_knight">Heavy Knight (Stun + Vault)</option>
+            <option value="bishop_sniper">Bishop Sniper (Ranged + Warding)</option>
+            <option value="rook_charge">Rook Charge (Plow extra step)</option>
+          </select>
+          <div class="mode-picked">Selected: {{ selectedModeLabel }}</div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" @click="showModeModal = false">Cancel</button>
+        <button class="btn btn-primary" @click="handleConfirmMode">Start</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Game Result Modal -->
+  <div v-if="showResultModal" class="modal-overlay" @click.self="handleResetGame">
+    <div class="modal-content">
+      <h3>{{ resultInfo.title }}</h3>
+      <p>{{ resultInfo.message }}</p>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" @click="showModeModal = true">Change Mode</button>
+        <button class="btn btn-primary" @click="handleResetGame">New Game</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Magic Abilities Modal -->
+  <div v-if="showMagicModal" class="modal-overlay" @click.self="showMagicModal = false">
+    <div class="modal-content">
+      <h3>Magic Abilities Menu</h3>
+      <p>Current mode: {{ modeLabel }}</p>
+      <div class="magic-list">
+        <div class="magic-item" v-for="item in magicList" :key="item.key">
+          <div class="magic-title">{{ item.title }}</div>
+          <div class="magic-desc">{{ item.desc }}</div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-primary" @click="showMagicModal = false">Close</button>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { watch, computed } from 'vue'
+import { watch, computed, ref } from 'vue'
 import type { PieceType } from './types/chess'
 import ChessBoard from './components/ChessBoard.vue'
 import { useChessGame } from './composables/useChessGame'
@@ -98,24 +179,48 @@ const {
   gameStatus,
   moveHistory,
   pendingPromotion,
+  gameMode,
+  enableAi,
   whiteTime,
   blackTime,
   formatTime,
   resetGame,
   undoMove,
-  promotePawn
+  promotePawn,
+  toggleAi
 } = useChessGame()
 
-function handleResetGame() {
-  console.log('=== RESET GAME BUTTON CLICKED ===')
-  console.log('handleResetGame called')
-  try {
-    resetGame()
-    console.log('resetGame() completed successfully')
-  } catch (error) {
-    console.error('Error in resetGame:', error)
-    alert('Error resetting game: ' + (error instanceof Error ? error.message : String(error)))
+const showModeModal = ref(false)
+const selectedMode = ref<'classic' | 'random' | 'special_pawn_power' | 'ghost_pawn' | 'heavy_knight' | 'bishop_sniper' | 'rook_charge'>('classic')
+const showResultModal = computed(() =>
+  ['checkmate', 'stalemate', 'draw'].includes(gameStatus.value)
+)
+const showMagicModal = ref(false)
+
+const magicList = [
+  { key: 'special_pawn_power', title: 'Special Power (Pawns 2-step)', desc: 'Pawns may move two squares forward on any turn if the path is clear.' },
+  { key: 'ghost_pawn', title: 'Ghost Pawn', desc: 'Each pawn may once jump over a piece straight ahead and land on the empty square behind it; pawns may also 2-step anytime.' },
+  { key: 'heavy_knight', title: 'Heavy Knight', desc: 'Landing stuns enemy pieces in the 4 orthogonal squares for 1 turn; extended vault jump (3+1 L) can leap over two blockers.' },
+  { key: 'bishop_sniper', title: 'Bishop Sniper', desc: 'Bishop may snipe (capture) up to 2 squares away on a diagonal without moving; adjacent friendly pieces are warded from capture.' },
+  { key: 'rook_charge', title: 'Rook Charge', desc: 'On a long straight capture (3+ squares), the rook plows through and may advance one extra empty square.' }
+]
+
+const resultInfo = computed(() => {
+  if (gameStatus.value === 'checkmate') {
+    const winner = currentPlayer.value === 'white' ? 'Black' : 'White'
+    return { title: 'Checkmate', message: `${winner} wins!` }
   }
+  if (gameStatus.value === 'stalemate') {
+    return { title: 'Stalemate', message: 'Draw by stalemate.' }
+  }
+  if (gameStatus.value === 'draw') {
+    return { title: 'Draw', message: 'The game ended in a draw.' }
+  }
+  return { title: '', message: '' }
+})
+
+function handleResetGame() {
+  showModeModal.value = true
 }
 
 const promotionOptions: PieceType[] = ['queen', 'rook', 'bishop', 'knight']
@@ -159,6 +264,71 @@ function handleUndo() {
   }
 }
 
+function handleToggleAi() {
+  toggleAi()
+}
+
+const modeLabel = computed(() => {
+  switch (gameMode.value) {
+    case 'classic':
+      return 'Classic'
+    case 'special_pawn_power':
+      return 'Special Power (Pawns 2-step anytime)'
+    case 'ghost_pawn':
+      return 'Ghost Pawn (1x Ghost Walk)'
+    case 'heavy_knight':
+      return 'Heavy Knight (Stun + Vault)'
+    case 'random':
+      return 'Random Ability'
+    default:
+      return gameMode.value
+  }
+})
+
+const selectedModeLabel = computed(() => {
+  switch (selectedMode.value) {
+    case 'classic':
+      return 'Classic'
+    case 'special_pawn_power':
+      return 'Special Power (Pawns 2-step anytime)'
+    case 'ghost_pawn':
+      return 'Ghost Pawn (1x Ghost Walk)'
+    case 'heavy_knight':
+      return 'Heavy Knight (Stun + Vault)'
+    case 'bishop_sniper':
+      return 'Bishop Sniper (Ranged + Warding)'
+    case 'rook_charge':
+      return 'Rook Charge (Plow extra step)'
+    case 'random':
+      return 'Random Ability'
+    default:
+      return selectedMode.value
+  }
+})
+
+function pickRandomAbility() {
+  const pool: typeof selectedMode.value[] = [
+    'special_pawn_power',
+    'ghost_pawn',
+    'heavy_knight',
+    'bishop_sniper',
+    'rook_charge'
+  ]
+  const pick = pool[Math.floor(Math.random() * pool.length)]
+  selectedMode.value = pick
+  console.log('Random ability picked:', pick)
+}
+
+function handleConfirmMode() {
+  try {
+    resetGame(selectedMode.value)
+    showModeModal.value = false
+  } catch (error) {
+    console.error('Error in resetGame:', error)
+    alert('Error resetting game: ' + (error instanceof Error ? error.message : String(error)))
+  }
+}
+
 function getStatusText(): string {
   switch (gameStatus.value) {
     case 'check':
@@ -185,12 +355,14 @@ function getStatusText(): string {
 }
 
 .game-container {
-  background: white;
-  border-radius: 16px;
-  padding: 30px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  max-width: 900px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 20px;
+  padding: 32px;
+  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.25);
+  max-width: 980px;
   width: 100%;
+  backdrop-filter: blur(12px);
 }
 
 .game-header {
@@ -199,16 +371,79 @@ function getStatusText(): string {
 }
 
 .game-header h1 {
-  font-size: 2.5em;
-  color: #333;
-  margin-bottom: 15px;
+  font-size: 2.4em;
+  color: #2d2f38;
+  margin-bottom: 12px;
 }
 
 .game-info {
   display: flex;
-  justify-content: space-around;
-  gap: 20px;
+  flex-direction: column;
+  gap: 12px;
   font-size: 1.1em;
+  align-items: center;
+}
+
+.game-info > div {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+}
+
+.game-mode {
+  color: #444;
+  font-weight: 600;
+}
+
+.ai-toggle .btn-ai {
+  padding: 8px 14px;
+  border: none;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #7c3aed, #6366f1);
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-weight: 600;
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.25);
+}
+
+.ai-toggle .btn-ai:hover {
+  filter: brightness(1.05);
+}
+
+.ai-toggle .btn-ai:active {
+  transform: translateY(1px);
+}
+
+.btn-ghost {
+  padding: 8px 14px;
+  border: 2px solid #6366f1;
+  border-radius: 6px;
+  background: #eef2ff;
+  color: #3730a3;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-weight: 600;
+  box-shadow: 0 6px 18px rgba(99, 102, 241, 0.15);
+}
+
+.btn-ghost.accent {
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #ffffff, #eef2ff);
+  border-color: #7c3aed;
+  color: #312e81;
+  box-shadow: 0 10px 28px rgba(124, 58, 237, 0.25);
+  letter-spacing: 0.3px;
+}
+
+.btn-ghost:hover {
+  background: #e0e7ff;
+}
+
+.btn-ghost:active {
+  transform: translateY(1px);
 }
 
 .current-player span.white {
@@ -224,6 +459,121 @@ function getStatusText(): string {
 .game-status {
   color: #666;
   font-style: italic;
+}
+
+.mode-label {
+  font-weight: 600;
+  color: #444;
+}
+
+.mode-select {
+  padding: 10px 12px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 1em;
+  background: #fff;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.mode-select:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+}
+
+/* Mode modal styles */
+.mode-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.mode-btn {
+  padding: 12px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s;
+  font-weight: 600;
+}
+
+.mode-btn .mode-desc {
+  display: block;
+  font-weight: 400;
+  font-size: 0.9em;
+  color: #666;
+  margin-top: 4px;
+}
+
+.mode-btn.active {
+  border-color: #667eea;
+  background: #f5f5ff;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+}
+
+.mode-btn:hover {
+  border-color: #667eea;
+}
+
+.mode-select-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mode-label {
+  font-weight: 600;
+  color: #444;
+}
+
+.mode-select {
+  padding: 10px 12px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 1em;
+  background: #fff;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.mode-select:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.magic-list {
+  margin: 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.magic-item {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+}
+
+.magic-title {
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.magic-desc {
+  color: #4b5563;
+  font-size: 0.95em;
+  margin-top: 4px;
 }
 
 .game-content {
