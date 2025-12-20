@@ -1,4 +1,4 @@
-import type { Board, Position, Color, GameMode } from '../types/chess'
+import type { Board, Position, Color, GameMode, Piece } from '../types/chess'
 import { isValidPosition, isEnemyPiece } from './chessUtils'
 import { getValidMoves } from './moveValidator'
 
@@ -232,5 +232,46 @@ export function isCheckmate(board: Board, color: Color, mode: GameMode): boolean
 // Check if it's stalemate
 export function isStalemate(board: Board, color: Color, mode: GameMode): boolean {
   return !isInCheck(board, color) && !hasValidMoves(board, color, mode)
+}
+
+// Insufficient material
+export function isInsufficientMaterial(board: Board): boolean {
+  const pieces: Piece[] = []
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const p = board[r][c]
+      if (p) pieces.push(p)
+    }
+  }
+  // Only kings
+  if (pieces.length === 2) return true
+  // King + minor vs king
+  if (pieces.length === 3) {
+    return pieces.some(p => p.type === 'king' && pieces.filter(x => x.type !== 'king').length === 1 &&
+      (pieces.find(x => x.type !== 'king')?.type === 'bishop' || pieces.find(x => x.type !== 'king')?.type === 'knight'))
+  }
+  // King + bishop vs king + bishop on same color squares
+  if (pieces.length === 4) {
+    const bishops = pieces.filter(p => p.type === 'bishop')
+    if (bishops.length === 2) {
+      const colors = bishops.map(b => (bishopSquareColor(board, b) === 'light' ? 'light' : 'dark'))
+      if (colors[0] === colors[1]) {
+        return pieces.filter(p => p.type !== 'king').length === 2
+      }
+    }
+  }
+  return false
+}
+
+function bishopSquareColor(board: Board, bishop: Piece): 'light' | 'dark' {
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const p = board[r][c]
+      if (p === bishop) {
+        return (r + c) % 2 === 0 ? 'light' : 'dark'
+      }
+    }
+  }
+  return 'light'
 }
 

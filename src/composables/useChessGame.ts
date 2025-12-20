@@ -34,6 +34,15 @@ function createGameState() {
   const enableAi = ref(true)
   const aiColor: Color = 'black'
 
+  // Draw support (half-move clock; repetition tracking can be added later)
+  const halfmoveClock = ref(0) // 50-move rule (ply count since last pawn move or capture)
+  const halfmoveHistory: number[] = []
+
+  // Placeholder for future threefold repetition tracking
+  function recordPosition() {
+    // Intentionally left simple; repetition detection can be added later
+  }
+
   function tickStunFor(color: Color) {
     for (let r = 0; r < 8; r++) {
       for (let c = 0; c < 8; c++) {
@@ -220,6 +229,15 @@ function createGameState() {
     moveHistory.value.push(move)
     setLastMove(move)
     
+    // Update halfmove clock (reset on pawn move or capture)
+    if (piece.type === 'pawn' || captured) {
+      halfmoveHistory.push(halfmoveClock.value)
+      halfmoveClock.value = 0
+    } else {
+      halfmoveHistory.push(halfmoveClock.value)
+      halfmoveClock.value += 1
+    }
+
     // Update timer before switching player
     updateTimer()
     
@@ -234,6 +252,9 @@ function createGameState() {
     // Start timer for new player
     startTimer()
     
+    // Update position repetition tracking
+    recordPosition()
+
     // Update game status
     updateGameStatus()
 

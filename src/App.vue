@@ -11,14 +11,6 @@
           <div class="game-mode">
             Mode: {{ modeLabel }}
           </div>
-          <div class="ai-toggle">
-            <button class="btn btn-ai" @click="handleToggleAi">
-              AI: {{ enableAi ? 'On' : 'Off' }}
-            </button>
-          </div>
-          <div class="info-actions">
-            <button class="btn btn-ghost accent" @click="showMagicModal = true">✨ Magic Abilities Menu</button>
-          </div>
           <div class="game-timer" v-if="gameStatus === 'playing'">
             <div class="timer white-timer" :class="{ active: currentPlayer === 'white' }">
               <span class="timer-label">White:</span>
@@ -29,6 +21,22 @@
               <span class="timer-value">{{ formatTime(blackTime) }}</span>
             </div>
           </div>
+        </div>
+        <div class="controls-bar">
+          <button @click="handleResetGame" class="btn btn-primary">New Game</button>
+          <button 
+            @click="handleUndo" 
+            class="btn btn-secondary" 
+            :disabled="!canUndo"
+            :title="canUndo ? 'Undo last move' : (moveHistory.length === 0 ? 'No moves to undo' : 'Complete pawn promotion first')"
+          >
+            Undo {{ moveHistory.length > 0 ? `(${moveHistory.length})` : '' }}
+          </button>
+          <button class="btn btn-ghost accent" @click="showMagicModal = true">✨ Magic Abilities Menu</button>
+          <button class="btn btn-ai slim" @click="handleToggleAi">
+            AI: {{ enableAi ? 'On' : 'Off' }}
+          </button>
+          <button class="btn btn-ghost" @click="openRulesDoc">Chess Rules</button>
         </div>
       </div>
 
@@ -60,18 +68,6 @@
             </span>
           </div>
         </div>
-      </div>
-
-      <div class="game-controls">
-        <button @click="handleResetGame" class="btn btn-primary">New Game</button>
-        <button 
-          @click="handleUndo" 
-          class="btn btn-secondary" 
-          :disabled="!canUndo"
-          :title="canUndo ? 'Undo last move' : (moveHistory.length === 0 ? 'No moves to undo' : 'Complete pawn promotion first')"
-        >
-          Undo {{ moveHistory.length > 0 ? `(${moveHistory.length})` : '' }}
-        </button>
       </div>
 
       <!-- Pawn Promotion Modal -->
@@ -204,6 +200,10 @@ const magicList = [
   { key: 'bishop_sniper', title: 'Bishop Sniper', desc: 'Bishop may snipe (capture) up to 2 squares away on a diagonal without moving; adjacent friendly pieces are warded from capture.' },
   { key: 'rook_charge', title: 'Rook Charge', desc: 'On a long straight capture (3+ squares), the rook plows through and may advance one extra empty square.' }
 ]
+
+const openRulesDoc = () => {
+  window.open('/rules.html', '_blank', 'noopener')
+}
 
 const resultInfo = computed(() => {
   if (gameStatus.value === 'checkmate') {
@@ -391,6 +391,14 @@ function getStatusText(): string {
   gap: 10px;
 }
 
+.controls-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  margin: 18px 0 24px;
+}
+
 .game-mode {
   color: #444;
   font-weight: 600;
@@ -436,6 +444,11 @@ function getStatusText(): string {
   color: #312e81;
   box-shadow: 0 10px 28px rgba(124, 58, 237, 0.25);
   letter-spacing: 0.3px;
+}
+
+.btn-ai.slim {
+  padding: 10px 14px;
+  border-radius: 10px;
 }
 
 .btn-ghost:hover {
